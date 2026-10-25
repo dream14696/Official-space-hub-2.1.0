@@ -2010,6 +2010,334 @@ local function makeApi(page, tab, register)
 		return obj
 	end
 
+	function api:CreateFloatingButtons(o)
+		o = o or {}
+		local maxCount = o.Max or 40
+		local count = math.clamp(math.floor(o.Count or 5), 1, maxCount)
+		local names = o.Names or {}
+		local size = o.Size or 56
+		local fgui
+		local conns = {}
+
+		local function destroyButtons()
+			for _, c in ipairs(conns) do
+				pcall(function()
+					c:Disconnect()
+				end)
+			end
+			table.clear(conns)
+			if fgui then
+				fgui:Destroy()
+				fgui = nil
+			end
+		end
+
+		local function build()
+			if fgui and fgui.Parent then
+				return
+			end
+			fgui = createGui("SpaceHubFloating_" .. tostring(o.Flag or o.Name or "Buttons"))
+			local vp = workspace.CurrentCamera.ViewportSize
+			local perRow = math.max(1, math.floor((vp.X - 40) / (size + 10)))
+			perRow = math.min(perRow, 5)
+
+			for i = 1, count do
+				local col, rowN = (i - 1) % perRow, math.floor((i - 1) / perRow)
+				local frame = new("Frame", {
+					Position = UDim2.fromOffset(20 + col * (size + 10), vp.Y * 0.35 + rowN * (size + 10)),
+					Size = UDim2.fromOffset(size, size), BackgroundColor3 = WHITE, BorderSizePixel = 0, Active = true,
+				}, fgui)
+				corner(frame, 12)
+				new("UIGradient", { Rotation = 90, Color = ColorSequence.new(STEEL_A, STEEL_B) }, frame)
+				metalStroke(frame, 2)
+				makeLabel(frame, {
+					Size = UDim2.fromScale(1, 1), Text = tostring(names[i] or i), Font = Enum.Font.GothamBold,
+					TextSize = 16, TextXAlignment = Enum.TextXAlignment.Center, TextWrapped = true,
+				})
+				local hit = new("TextButton", {
+					Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", ZIndex = 5,
+				}, frame)
+
+				local press
+				hit.InputBegan:Connect(function(input)
+					local t = input.UserInputType
+					if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
+						press = {
+							start = input.Position, kind = t, moved = false,
+							pos = Vector2.new(frame.Position.X.Offset, frame.Position.Y.Offset),
+						}
+					end
+				end)
+				table.insert(conns, UserInputService.InputChanged:Connect(function(input)
+					if not press then
+						return
+					end
+					if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then
+						return
+					end
+					local d = input.Position - press.start
+					if not press.moved and d.Magnitude > 8 then
+						press.moved = true
+					end
+					if press.moved then
+						local v = workspace.CurrentCamera.ViewportSize
+						frame.Position = UDim2.fromOffset(
+							math.clamp(press.pos.X + d.X, 0, v.X - size),
+							math.clamp(press.pos.Y + d.Y, 0, v.Y - size)
+						)
+					end
+				end))
+				table.insert(conns, UserInputService.InputEnded:Connect(function(input)
+					if press and input.UserInputType == press.kind then
+						local p = press
+						press = nil
+						if not p.moved then
+							flashGlow(frame, 12, 0.5)
+							safe(o.Callback, i, names[i] or i)
+						end
+					end
+				end))
+			end
+			fgui.Destroying:Connect(function()
+				for _, c in ipairs(conns) do
+					pcall(function()
+						c:Disconnect()
+					end)
+				end
+			end)
+		end
+
+		local obj = api:CreateToggle({
+			Name = o.Name or "button float",
+			CurrentValue = o.CurrentValue == true,
+			Flag = o.Flag,
+			Callback = function(on)
+				if on then
+					build()
+				else
+					destroyButtons()
+				end
+				safe(o.OnToggle, on)
+			end,
+		})
+		obj.Type = "Toggle"
+		if obj.CurrentValue then
+			build()
+		end
+		function obj:SetCount(n)
+			count = math.clamp(math.floor(tonumber(n) or count), 1, maxCount)
+			if obj.CurrentValue then
+				destroyButtons()
+				build()
+			end
+		end
+		local amount = api:CreatePowerInput({
+			Name = o.AmountName or "x amount",
+			CurrentValue = count, Min = 1, Max = maxCount, PlaceholderText = "5",
+			Flag = o.Flag and (o.Flag .. "_Amount") or nil,
+			Callback = function(n)
+				obj:SetCount(n)
+			end,
+		})
+		obj.Amount = amount
+		return obj
+	end
+
+	function api:CreateSpectate(o)
+		o = o or {}
+		local cam = workspace.CurrentCamera
+		local f = row(page, 172, nextOrder())
+
+		local function arrowButton(text, left)
+			local fr, b = makeButton(f, text, 1, 44)
+			fr.AnchorPoint = Vector2.new(left and 0 or 1, 0.5)
+			fr.Position = UDim2.new(left and 0 or 1, left and 12 or -12, 0, 64)
+			fr.Size = UDim2.fromOffset(44, 44)
+			b.TextSize = 22
+			b.Font = Enum.Font.GothamBold
+			return b
+		end
+		local prevBtn = arrowButton("<", true)
+		local nextBtn = arrowButton(">", false)
+
+		local ring = new("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0, 64), Size = UDim2.fromOffset(92, 92),
+			BackgroundColor3 = GREEN, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 1,
+		}, f)
+		corner(ring, UDim.new(1, 0))
+		local photo = new("ImageLabel", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0, 64), Size = UDim2.fromOffset(84, 84),
+			BackgroundColor3 = C(20, 22, 28), BorderSizePixel = 0, ZIndex = 2,
+		}, f)
+		corner(photo, UDim.new(1, 0))
+		metalStroke(photo, 2)
+		local photoHit = new("TextButton", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0, 64), Size = UDim2.fromOffset(84, 84),
+			BackgroundTransparency = 1, Text = "", ZIndex = 3,
+		}, f)
+		corner(photoHit, UDim.new(1, 0))
+
+		local nameLbl = makeLabel(f, {
+			Position = UDim2.fromOffset(12, 116), Size = UDim2.new(1, -24, 0, 22), Text = "", Font = Enum.Font.GothamBold,
+			TextSize = 14, TextXAlignment = Enum.TextXAlignment.Center, TextTruncate = Enum.TextTruncate.AtEnd,
+		})
+		local subLbl = makeLabel(f, {
+			Position = UDim2.fromOffset(12, 138), Size = UDim2.new(1, -24, 0, 18), Text = "", TextColor3 = MUTED,
+			TextSize = 11, TextXAlignment = Enum.TextXAlignment.Center, TextTruncate = Enum.TextTruncate.AtEnd,
+		})
+
+		local list, idx, spectating = {}, 1, false
+		local thumbs = {}
+		local obj = { Type = "Spectate", CurrentValue = false, Name = o.Name or "Spectate" }
+
+		local function current()
+			return list[idx]
+		end
+		local function refreshList()
+			local cur = current()
+			list = {}
+			for _, p in ipairs(Players:GetPlayers()) do
+				if p ~= player then
+					table.insert(list, p)
+				end
+			end
+			table.sort(list, function(a, b)
+				return a.Name:lower() < b.Name:lower()
+			end)
+			idx = (cur and table.find(list, cur)) or math.clamp(idx, 1, math.max(#list, 1))
+		end
+		local function showCurrent()
+			local p = current()
+			if not p then
+				nameLbl.Text = "No players"
+				subLbl.Text = "Waiting for players..."
+				photo.Image = ""
+				return
+			end
+			nameLbl.Text = p.DisplayName
+			subLbl.Text = "@" .. p.Name .. (spectating and "  -  spectating" or "  -  tap photo to spectate")
+			if thumbs[p.UserId] then
+				photo.Image = thumbs[p.UserId]
+			else
+				photo.Image = ""
+				task.spawn(function()
+					local ok, img = pcall(function()
+						return Players:GetUserThumbnailAsync(p.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
+					end)
+					if ok and img then
+						thumbs[p.UserId] = img
+						if current() == p then
+							photo.Image = img
+						end
+					end
+				end)
+			end
+		end
+
+		local function resetCamera()
+			local ch = player.Character
+			local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+			if hum then
+				cam.CameraSubject = hum
+			end
+		end
+		local function stop()
+			if not spectating then
+				return
+			end
+			spectating = false
+			obj.CurrentValue = false
+			tw(ring, 0.25, { BackgroundTransparency = 1 })
+			resetCamera()
+			showCurrent()
+			safe(o.OnStop)
+			safe(o.Callback, current(), false)
+		end
+		local function start()
+			local p = current()
+			if not p or spectating then
+				return
+			end
+			spectating = true
+			obj.CurrentValue = true
+			tw(ring, 0.25, { BackgroundTransparency = 0.15 })
+			showCurrent()
+			safe(o.Callback, p, true)
+			task.spawn(function()
+				while spectating and f.Parent do
+					local t = current()
+					local hum = t and t.Character and t.Character:FindFirstChildOfClass("Humanoid")
+					if hum and cam.CameraSubject ~= hum then
+						cam.CameraSubject = hum
+					end
+					task.wait(0.25)
+				end
+			end)
+		end
+
+		local function step(dir)
+			if #list == 0 then
+				return
+			end
+			idx = (idx - 1 + dir) % #list + 1
+			haptic()
+			showCurrent()
+		end
+		prevBtn.Activated:Connect(function()
+			step(-1)
+		end)
+		nextBtn.Activated:Connect(function()
+			step(1)
+		end)
+		photoHit.Activated:Connect(function()
+			haptic()
+			if spectating then
+				stop()
+			else
+				start()
+			end
+		end)
+
+		local function onPlayersChanged()
+			local before = current()
+			refreshList()
+			if spectating and (#list == 0 or before ~= current() and not table.find(list, before)) then
+				if #list == 0 then
+					stop()
+				end
+			end
+			showCurrent()
+		end
+		bind(Players.PlayerAdded, function()
+			task.defer(onPlayersChanged)
+		end)
+		bind(Players.PlayerRemoving, function()
+			task.defer(onPlayersChanged)
+		end)
+
+		function obj:Next()
+			step(1)
+		end
+		function obj:Previous()
+			step(-1)
+		end
+		function obj:Set(v)
+			if v then
+				start()
+			else
+				stop()
+			end
+		end
+		function obj:Refresh()
+			onPlayersChanged()
+		end
+
+		refreshList()
+		showCurrent()
+		register(o.Name or "Spectate", "Spectate", f, tab)
+		return obj
+	end
+
 	return api
 end
 
@@ -2707,232 +3035,4 @@ function SpaceHub:CreateWindow(settings)
 		end
 		dialogOpen = true
 		local modal = makeModal(gui, 320)
-		modalText(modal.Card, 1, title, 16, TEXT, Enum.Font.GothamBold)
-		modalText(modal.Card, 2, message, 13, MUTED)
-		local buttons = buttonRow(modal.Card, 3, {
-			{ Text = confirmText, C1 = RED_A, C2 = RED_B },
-			{ Text = "Cancel", C1 = GRAY_A, C2 = GRAY_B },
-		})
-		local function finish(after)
-			modal.Close(function()
-				dialogOpen = false
-				if after then
-					after()
-				end
-			end)
-		end
-		buttons[2].Activated:Connect(function()
-			finish()
-		end)
-		buttons[1].Activated:Connect(function()
-			finish(onConfirm)
-		end)
-	end
-	local function destroyWithFade()
-		tw(frame, 0.3, { GroupTransparency = 1 })
-		for _, s in ipairs(shadows) do
-			tw(s.f, 0.3, { BackgroundTransparency = 1 })
-		end
-		task.wait(0.35)
-		SpaceHub:Destroy()
-	end
-	btnClose.Activated:Connect(function()
-		confirm("Close Space Hub?", "The interface will be closed completely.", "Close", destroyWithFade)
-	end)
-	sApi:CreateButton({
-		Name = "Destroy interface",
-		Callback = function()
-			confirm("Destroy interface?", "The interface will be closed completely.", "Destroy", destroyWithFade)
-		end,
-	})
-
-	local drag
-	local function startDrag(input, fromGrab, onlyMove)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			drag = {
-				start = input.Position, last = input.Position,
-				pos = Vector2.new(container.Position.X.Offset, container.Position.Y.Offset),
-				moved = false, grab = fromGrab, time = os.clock(), move = onlyMove,
-			}
-		end
-	end
-	header.InputBegan:Connect(function(i)
-		startDrag(i, false)
-	end)
-	grab.InputBegan:Connect(function(i)
-		startDrag(i, true)
-	end)
-	btnMove.InputBegan:Connect(function(i)
-		startDrag(i, false, true)
-	end)
-
-	bind(UserInputService.InputChanged, function(input)
-		if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then
-			return
-		end
-		if resizing then
-			local d = input.Position - resizing.start
-			W = math.clamp(resizing.w + d.X, math.min(SIZE.MinW, maxW()), maxW())
-			H = math.clamp(resizing.h + d.Y, math.min(SIZE.MinH, maxH()), maxH())
-			container.Size = UDim2.fromOffset(W, H)
-			return
-		end
-		if not drag then
-			return
-		end
-		local d = input.Position - drag.start
-		if not drag.moved and d.Magnitude > 5 then
-			drag.moved = true
-			if drag.grab then
-				barActive(true)
-			end
-		end
-		if drag.moved then
-			local p = limit(drag.pos.X + d.X, drag.pos.Y + d.Y, container.AbsoluteSize.X, container.AbsoluteSize.Y)
-			tw(container, 0.08, { Position = UDim2.fromOffset(p.X, p.Y) }, Enum.EasingStyle.Linear)
-			if drag.grab then
-				local step = input.Position - drag.last
-				drag.last = input.Position
-				tw(bar, 0.08, {
-					Position = UDim2.new(0.5, math.clamp(step.X * 2, -10, 10), 0.5, math.clamp(step.Y * 2, -4, 4)),
-				}, Enum.EasingStyle.Linear)
-			end
-		end
-	end)
-
-	bind(UserInputService.InputEnded, function(input)
-		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
-			return
-		end
-		if resizing then
-			resizing = nil
-			tw(grip, 0.15, { TextColor3 = BAR_GRAY })
-		end
-		if drag then
-			local d0 = drag
-			drag = nil
-			if d0.moved then
-				if d0.grab then
-					barActive(false)
-				end
-			elseif minimized and not d0.grab and not d0.move and os.clock() - d0.time <= 0.35 and (input.Position - d0.start).Magnitude <= 8 then
-				setMinimized(false)
-			end
-		end
-	end)
-
-	local hidden = false
-	local showBtn = new("TextButton", {
-		AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 12), Size = UDim2.fromOffset(160, 34),
-		AutoButtonColor = false, Text = "Show " .. menuName, Font = Enum.Font.GothamMedium, TextSize = 13,
-		TextColor3 = TEXT, Visible = false, ZIndex = 30,
-	}, gui)
-	themed(showBtn, "BackgroundColor3", "Background")
-	corner(showBtn, 17)
-	metalStroke(showBtn, 1.5)
-	local mobile = settings.MobileButton
-	if mobile == nil then
-		mobile = UserInputService.TouchEnabled
-	end
-
-	function Window:Hide()
-		if hidden then
-			return
-		end
-		hidden = true
-		tw(frame, 0.3, { GroupTransparency = 1 })
-		for _, s in ipairs(shadows) do
-			tw(s.f, 0.3, { BackgroundTransparency = 1 })
-		end
-		task.delay(0.32, function()
-			if hidden then
-				container.Visible = false
-			end
-		end)
-		showBtn.Visible = mobile
-	end
-	function Window:Show()
-		if not hidden then
-			return
-		end
-		hidden = false
-		container.Visible = true
-		showBtn.Visible = false
-		tw(frame, 0.3, { GroupTransparency = 0 })
-		for _, s in ipairs(shadows) do
-			tw(s.f, 0.3, { BackgroundTransparency = s.final })
-		end
-	end
-	function Window:Toggle()
-		if hidden then
-			Window:Show()
-		else
-			Window:Hide()
-		end
-	end
-	showBtn.Activated:Connect(function()
-		Window:Show()
-	end)
-	bind(UserInputService.InputBegan, function(input, gp)
-		if gp or SpaceHub._listening then
-			return
-		end
-		if input.KeyCode == toggleKey then
-			Window:Toggle()
-		end
-	end)
-
-	function Window:Notify(o)
-		SpaceHub:Notify(o)
-	end
-	function Window:Minimize(v)
-		setMinimized(v ~= false)
-	end
-	function Window:SetTheme(name)
-		return setThemeByName(name)
-	end
-	function Window:SetToggleKey(key)
-		toggleKey = key
-	end
-	function Window:SetMenuType(m)
-		applyMode(m == "horizontal" and "horizontal" or "vertical")
-	end
-	function Window:Destroy()
-		SpaceHub:Destroy()
-	end
-
-	applyMode("vertical")
-	tw(frame, 0.4, { GroupTransparency = 0 }, Enum.EasingStyle.Sine)
-	for _, s in ipairs(shadows) do
-		tw(s.f, 0.4, { BackgroundTransparency = s.final })
-	end
-
-	self._window = Window
-	task.spawn(function()
-		pcall(discordPrompt, settings.Discord)
-	end)
-	return Window
-end
-
-function SpaceHub:Destroy()
-	for _, c in ipairs(connections) do
-		pcall(function()
-			c:Disconnect()
-		end)
-	end
-	table.clear(connections)
-	for _, g in ipairs(allGuis) do
-		pcall(function()
-			g:Destroy()
-		end)
-	end
-	table.clear(allGuis)
-	table.clear(themeRegistry)
-	table.clear(softRegistry)
-	table.clear(themeHooks)
-	notifGui, notifHolder = nil, nil
-	self._window = nil
-	self.Flags = {}
-end
-
-return SpaceHub
+		modalText(modal.Card, 1, title, 1
